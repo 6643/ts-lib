@@ -36,11 +36,11 @@ const formatObjectError = (value: Record<string, unknown>): string => {
 
 export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
 
-export const err = <E = Error>(error: E): Err<E> => ({ ok: false, error });
+export const err = <E>(error: E): Err<E> => ({ ok: false, error });
 
-export const isOk = <T, E = Error>(result: Result<T, E>): result is Ok<T> => result.ok;
+export const isOk = <T, E>(result: Result<T, E>): result is Ok<T> => result.ok;
 
-export const isErr = <T, E = Error>(result: Result<T, E>): result is Err<E> => !result.ok;
+export const isErr = <T, E>(result: Result<T, E>): result is Err<E> => !result.ok;
 
 export const trySyncResult = <T>(fn: () => T): Result<T> => {
     try {
