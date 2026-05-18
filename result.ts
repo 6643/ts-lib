@@ -3,21 +3,17 @@ export interface Ok<T> {
     readonly value: T;
 }
 
-export interface Err {
+export interface Err<E = Error> {
     readonly ok: false;
-    readonly error: Error;
+    readonly error: E;
 }
 
-export type Result<T> = Ok<T> | Err;
-
-type Thenable<T> = {
-    then: (resolve: (value: T) => unknown, reject?: (reason: unknown) => unknown) => unknown;
-};
+export type Result<T, E = Error> = Ok<T> | Err<E>;
 
 const toError = (error: unknown): Error => {
     if (error instanceof Error) return error;
-    if (hasStringMessage(error)) return new Error(error.message, { cause: error });
-    if (isObjectLike(error)) return new Error(formatObjectError(error), { cause: error });
+    if (hasStringMessage(error)) return new Error(error.message);
+    if (isObjectLike(error)) return new Error(formatObjectError(error));
     return new Error(typeof error === "string" ? error : String(error));
 };
 
@@ -40,24 +36,27 @@ const formatObjectError = (value: Record<string, unknown>): string => {
 
 export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
 
-export const err = (error: unknown): Err => ({ ok: false, error: toError(error) });
+export const err = <E = Error>(error: E): Err<E> => ({ ok: false, error });
 
-export const isOk = <T>(result: Result<T>): result is Ok<T> => result.ok;
+export const isOk = <T, E = Error>(result: Result<T, E>): result is Ok<T> => result.ok;
 
-export const isErr = <T>(result: Result<T>): result is Err => !result.ok;
+export const isErr = <T, E = Error>(result: Result<T, E>): result is Err<E> => !result.ok;
 
 export const trySyncResult = <T>(fn: () => T): Result<T> => {
     try {
         return ok(fn());
     } catch (error) {
-        return err(error);
+        return err(toError(error));
     }
 };
 
+type Thenable<T> = {
+    then: (resolve: (value: T) => unknown, reject?: (reason: unknown) => unknown) => unknown;
+};
 export const tryAsyncResult = async <T>(fn: () => T | Thenable<T>): Promise<Result<T>> => {
     try {
         return ok(await Promise.resolve(fn()));
     } catch (error) {
-        return err(error);
+        return err(toError(error));
     }
 };

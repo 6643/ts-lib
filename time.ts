@@ -1,8 +1,7 @@
 export const timeToString = (date: number, timeZone: string | undefined = undefined): string => {
-    let targetDate = new Date(date);
-    if (isNaN(targetDate.getTime())) {
-        targetDate = new Date();
-    }
+    if (!Number.isFinite(date) || Math.abs(date) > 8.64e15) return "NaN";
+
+    const targetDate = new Date(date);
     const options: Intl.DateTimeFormatOptions = { hour12: false, timeZone: timeZone || undefined };
     return targetDate.toLocaleString("sv-SE", options).replace("T", " ");
 };
@@ -35,9 +34,6 @@ export const timeSince = (time: number): number => {
     return Math.trunc(Date.now() / 1000) - time;
 };
 
-const TIME_TICK_RE = /^([0-1]\d|2[0-3]):([0-5]\d)$/;
-const DAY_TIME_TICK_RE = /^(\d+)\s+([0-1]\d|2[0-3]):([0-5]\d)$/;
-
 export const tickToString = (num: number): string => {
     if (!Number.isFinite(num) || num < 0) return "";
     if (num < 24 * 60) {
@@ -57,6 +53,8 @@ export const tickToString = (num: number): string => {
     return `${month}-${day} ${hour}:${minute}`;
 };
 
+const TIME_TICK_RE = /^([0-1]\d|2[0-3]):([0-5]\d)$/;
+const DAY_TIME_TICK_RE = /^(\d+)\s+([0-1]\d|2[0-3]):([0-5]\d)$/;
 export const tickFromString = (str: string): number => {
     const sameDay = str.match(TIME_TICK_RE);
     if (sameDay?.[1] != null && sameDay?.[2] != null) {

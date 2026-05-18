@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { dateToNum, sleep, tickFromString, tickToString, timeSince, toTime } from "./time";
+import { dateToNum, sleep, tickFromString, tickToString, timeSince, timeToString, toTime } from "./time";
+
+test("timeToString returns NaN for invalid timestamps", () => {
+    expect(timeToString(Number.NaN)).toBe("NaN");
+});
+
+test("timeToString formats valid timestamps", () => {
+    expect(timeToString(Date.UTC(2026, 4, 18, 12, 34, 56), "UTC")).toBe("2026-05-18 12:34:56");
+});
 
 test("toTime returns explicit day/hour/minute/second parts", () => {
     expect(toTime(90061)).toEqual({ days: 1, hours: 1, minutes: 1, seconds: 1 });
