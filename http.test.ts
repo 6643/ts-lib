@@ -12,7 +12,7 @@ test("createHttp exposes get put post del and setTimeout", () => {
 
 test("request wraps successful json responses with status and data", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => Response.json({ ok: true, count: 3 })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ ok: true, count: 3 })) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");
@@ -26,7 +26,7 @@ test("request wraps successful json responses with status and data", async () =>
 
 test("request omits data for non-200 responses", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => Response.json({ error: "missing" }, { status: 404 })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ error: "missing" }, { status: 404 })) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");
@@ -45,11 +45,13 @@ test("request maps fetch failures to status 0", async () => {
 
     globalThis.fetch = (async () => {
         throw expectedError;
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");
-        await expect(http.get("/status")).resolves.toEqual({ status: 0 });
+        const result = await http.get("/status");
+
+        expect(result).toEqual({ status: 0 });
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -62,12 +64,14 @@ test("request maps slow requests to status 408", async () => {
             init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
         });
         return Response.json({ ok: true });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");
         http.setTimeout(1);
-        await expect(http.get("/slow")).resolves.toEqual({ status: 408 });
+        const result = await http.get("/slow");
+
+        expect(result).toEqual({ status: 408 });
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -75,7 +79,7 @@ test("request maps slow requests to status 408", async () => {
 
 test("request uses a custom converter when provided", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("plain text", { status: 200 })) as typeof fetch;
+    globalThis.fetch = (async () => new Response("plain text", { status: 200 })) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");
@@ -93,7 +97,7 @@ test("post and del return wrapped results and preserve fetch methods", async () 
     globalThis.fetch = (async (_path: string | URL, init?: RequestInit) => {
         calls.push({ method: String(init?.method), body: init?.body });
         return Response.json({ ok: true, count: 3 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
         const http = createHttp("https://example.com");

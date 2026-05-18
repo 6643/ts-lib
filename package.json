@@ -1,0 +1,26 @@
+{
+    "name": "ts-lib",
+    "version": "0.1.0",
+    "type": "module",
+    "exports": {
+        "./bit": "./bit.ts",
+        "./clone": "./clone.ts",
+        "./currency": "./currency.ts",
+        "./file": "./file.ts",
+        "./fmt": "./fmt.ts",
+        "./fp": "./fp.ts",
+        "./http": "./http.ts",
+        "./list": "./list.ts",
+        "./result": "./result.ts",
+        "./time": "./time.ts",
+        "./verify": "./verify.ts"
+    },
+    "files": [
+        "*.ts",
+        "README.md"
+    ],
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "latest"
+    }
+}
