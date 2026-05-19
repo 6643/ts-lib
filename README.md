@@ -4,5 +4,5 @@
 
 ```ts
 import { createHttp } from "ts-lib/http";
-import { Ok } from "ts-lib/result";
+import { type Ok } from "ts-lib/result";
 ```

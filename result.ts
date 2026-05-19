@@ -10,15 +10,33 @@ export interface Err<E = Error> {
 
 export type Result<T, E = Error> = Ok<T> | Err<E>;
 
+const NativeError = Error;
+const NativeString = String;
+
 const toError = (error: unknown): Error => {
-    if (error instanceof Error) return error;
-    if (hasStringMessage(error)) return new Error(error.message);
-    if (isObjectLike(error)) return new Error(formatObjectError(error));
-    return new Error(typeof error === "string" ? error : String(error));
+    if (isError(error)) return error;
+    const message = getStringMessage(error);
+    if (message !== undefined) return new NativeError(message);
+    if (isObjectLike(error)) return new NativeError(formatObjectError(error));
+    return new NativeError(typeof error === "string" ? error : safeString(error));
 };
 
-const hasStringMessage = (value: unknown): value is { message: string } => {
-    return isObjectLike(value) && "message" in value && typeof value.message === "string";
+const isError = (value: unknown): value is Error => {
+    try {
+        return value instanceof NativeError;
+    } catch {
+        return false;
+    }
+};
+
+const getStringMessage = (value: unknown): string | undefined => {
+    if (!isObjectLike(value)) return undefined;
+    try {
+        const message = value.message;
+        return typeof message === "string" ? message : undefined;
+    } catch {
+        return undefined;
+    }
 };
 
 const isObjectLike = (value: unknown): value is Record<string, unknown> => {
@@ -28,9 +46,18 @@ const isObjectLike = (value: unknown): value is Record<string, unknown> => {
 const formatObjectError = (value: Record<string, unknown>): string => {
     try {
         const serialized = JSON.stringify(value);
-        return serialized ?? String(value);
+        return serialized ?? safeString(value);
     } catch {
-        return String(value);
+        return safeString(value);
+    }
+};
+
+const safeString = (value: unknown): string => {
+    try {
+        const text = NativeString(value);
+        return typeof text === "string" ? text : "[unknown error]";
+    } catch {
+        return "[unknown error]";
     }
 };
 
