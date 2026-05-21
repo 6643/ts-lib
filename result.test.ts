@@ -1,161 +1,170 @@
 import { expect, test } from "bun:test";
-import { err, isErr, isOk, ok, tryAsyncResult, trySyncResult } from "./result";
+import * as result from "./result";
 
-test("ok creates Ok values and guards narrow Result variants", () => {
-    const success = ok(1);
-    const failure = err("boom");
+test("result module has no function declarations or expressions", async () => {
+    const source = await Bun.file("result.ts").text();
 
-    expect(success).toEqual({ ok: true, value: 1 });
-    expect(isOk(success)).toBe(true);
-    expect(isErr(success)).toBe(false);
-    expect(isOk(failure)).toBe(false);
-    expect(isErr(failure)).toBe(true);
+    expect(source).not.toMatch(/\bfunction\b\s*(?:[\w$]+\s*)?(?:<[^;{=]*>\s*)?\(/);
 });
 
-test("err preserves non-Error payloads", () => {
-    expect(err("boom")).toEqual({ ok: false, error: "boom" });
-    expect(err({ code: 500 })).toEqual({ ok: false, error: { code: 500 } });
+test("result module exposes only the public result helpers", () => {
+    expect(typeof result.tryResult).toBe("function");
+    expect(typeof result.isError).toBe("function");
+    expect("isOk" in result).toBe(false);
+    expect("isErr" in result).toBe(false);
+    expect("toOk" in result).toBe(false);
+    expect("toErr" in result).toBe(false);
 });
 
-test("trySyncResult normalizes thrown values to Error", () => {
-    const result = trySyncResult(() => {
+test("Result is a value-or-Error union", () => {
+    const success: result.Result<number> = 1;
+    const failure: result.Result<number> = new Error("boom");
+    const errorLike: result.Result<{ readonly name: string; readonly message: string; readonly code: number }> = {
+        name: "BusinessError",
+        message: "ok",
+        code: 1,
+    };
+
+    expect(success).toBe(1);
+    expect(failure).toBeInstanceOf(Error);
+    expect(errorLike.code).toBe(1);
+});
+
+test("result treats returned Error values as failures", async () => {
+    const syncPayload = new Error("sync");
+    const promisePayload = new Error("promise");
+    const mixedPayload = new Error("mixed");
+
+    const syncValue = result.tryResult(() => syncPayload);
+    const promiseValue = await result.tryResult((): Promise<Error> => Promise.resolve(promisePayload));
+    const mixedValue = await result.tryResult((): Promise<Error> | number => Promise.resolve(mixedPayload));
+
+    expect(syncValue).toBe(syncPayload);
+    expect(promiseValue).toBe(promisePayload);
+    expect(mixedValue).toBe(mixedPayload);
+    expect(syncValue).toBeInstanceOf(Error);
+    expect(promiseValue).toBeInstanceOf(Error);
+    expect(mixedValue).toBeInstanceOf(Error);
+    if (!result.isError(syncValue) || !result.isError(promiseValue) || !result.isError(mixedValue)) return;
+    expect(syncValue.message).toBe("sync");
+    expect(promiseValue.message).toBe("promise");
+    expect(mixedValue.message).toBe("mixed");
+});
+
+test("isError narrows Result failures", () => {
+    const value: result.Result<number> = Math.random() > 0.5 ? 1 : new Error("boom");
+
+    if (result.isError(value)) {
+        const failure: Error = value;
+        void failure;
+        return;
+    }
+
+    const success: number = value;
+    void success;
+});
+
+test("result returns value for successful sync functions", () => {
+    const value = result.tryResult(() => 1);
+
+    expect(value).toBe(1);
+});
+
+test("result converts non-Error sync failures to Error", () => {
+    const value = result.tryResult<number>(() => {
         throw "boom";
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
-    expect(result.error.message).toBe("boom");
+    expect(value).toBeInstanceOf(Error);
+    if (!result.isError(value)) return;
+    expect(value.message).toBe("boom");
 });
 
-test("tryAsyncResult normalizes rejected values to Error", async () => {
-    const result = await tryAsyncResult(() => Promise.reject("boom"));
+test("result normalizes nullish thrown values to Error", () => {
+    const value = result.tryResult(() => {
+        throw null;
+    });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
-    expect(result.error.message).toBe("boom");
+    expect(value).toBeInstanceOf(Error);
+    if (!result.isError(value)) return;
+    expect(value.message).toBe("null");
 });
 
-test("trySyncResult does not rethrow when thrown object has unsafe message getter", () => {
-    const payload = {};
-    Object.defineProperty(payload, "message", {
-        get() {
-            throw new Error("message getter failed");
+test("result wraps fulfilled promises", async () => {
+    const value = await result.tryResult(Promise.resolve(1));
+
+    expect(value).toBe(1);
+});
+
+test("result wraps rejected promises", async () => {
+    const payload = new Error("boom");
+    const value = await result.tryResult<number>(Promise.reject(payload));
+
+    expect(value).toBe(payload);
+    expect(value).toBeInstanceOf(Error);
+    if (!result.isError(value)) return;
+    expect(value.message).toBe("boom");
+});
+
+test("result converts non-Error rejected values to Error", async () => {
+    const value = await result.tryResult<number>(Promise.reject("boom"));
+
+    expect(value).toBeInstanceOf(Error);
+    if (!result.isError(value)) return;
+    expect(value.message).toBe("boom");
+});
+
+test("result awaits async function results and catches rejection", async () => {
+    const success = await result.tryResult(async () => 1);
+    const failure = await result.tryResult<number>(async () => {
+        throw "boom";
+    });
+
+    expect(success).toBe(1);
+    expect(failure).toBeInstanceOf(Error);
+    if (!result.isError(failure)) return;
+    expect(failure.message).toBe("boom");
+});
+
+test("result awaits callable thenable results returned from callbacks", async () => {
+    const payload = Object.assign(() => 1, {
+        then<TResult1 = number, TResult2 = never>(
+            onfulfilled?: ((value: number) => TResult1 | PromiseLike<TResult1>) | null,
+            _onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+        ): PromiseLike<TResult1 | TResult2> {
+            return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
         },
     });
 
-    const result = trySyncResult(() => {
-        throw payload;
-    });
+    const value = await result.tryResult((): PromiseLike<number> => payload);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
+    expect(value).toBe(2);
 });
 
-test("tryAsyncResult does not rethrow when rejection object has unsafe message getter", async () => {
-    const payload = {};
-    Object.defineProperty(payload, "message", {
-        get() {
-            throw new Error("message getter failed");
+test("result treats callable inputs as thunks before thenables", () => {
+    const payload = Object.assign(() => 1, {
+        then<TResult1 = number, TResult2 = never>(
+            onfulfilled?: ((value: number) => TResult1 | PromiseLike<TResult1>) | null,
+            _onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+        ): PromiseLike<TResult1 | TResult2> {
+            return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
         },
     });
 
-    const result = await tryAsyncResult(() => Promise.reject(payload));
+    const value = result.tryResult(payload);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
+    expect(value).toBe(1);
 });
 
-test("trySyncResult does not rethrow when thrown object cannot be stringified", () => {
-    const payload: Record<string, unknown> = {};
-    payload.self = payload;
-    Object.defineProperty(payload, "toString", {
-        value() {
-            throw new Error("toString failed");
-        },
+test("result keeps Promise-or-value inference for mixed callbacks", async () => {
+    const value = await result.tryResult((): Promise<number> | string => {
+        return Math.random() > 0.5 ? Promise.resolve(1) : "ok";
     });
 
-    const result = trySyncResult(() => {
-        throw payload;
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
-});
-
-test("tryAsyncResult does not rethrow when rejection object cannot be stringified", async () => {
-    const payload: Record<string, unknown> = {};
-    payload.self = payload;
-    Object.defineProperty(payload, "toString", {
-        value() {
-            throw new Error("toString failed");
-        },
-    });
-
-    const result = await tryAsyncResult(() => Promise.reject(payload));
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
-});
-
-test("trySyncResult does not rethrow when thrown value breaks instanceof checks", () => {
-    const payload = new Proxy(
-        {},
-        {
-            getPrototypeOf() {
-                throw new Error("prototype failed");
-            },
-        },
-    );
-
-    const result = trySyncResult(() => {
-        throw payload;
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toBeInstanceOf(Error);
-});
-
-test("trySyncResult does not rethrow when global Error constructor is replaced", () => {
-    const nativeError = globalThis.Error;
-    globalThis.Error = function ThrowingError() {
-        throw nativeError("Error constructor failed");
-    } as unknown as ErrorConstructor;
-
-    try {
-        const result = trySyncResult(() => {
-            throw "boom";
-        });
-
-        expect(result.ok).toBe(false);
-        if (result.ok) return;
-        expect(result.error).toBeInstanceOf(nativeError);
-    } finally {
-        globalThis.Error = nativeError;
-    }
-});
-
-test("trySyncResult does not rethrow when global String returns a non-string", () => {
-    const nativeString = globalThis.String;
-    globalThis.String = function NonString() {
-        return Symbol("not string") as unknown as string;
-    } as unknown as StringConstructor;
-
-    try {
-        const result = trySyncResult(() => {
-            throw 1;
-        });
-
-        expect(result.ok).toBe(false);
-        if (result.ok) return;
-        expect(result.error).toBeInstanceOf(Error);
-    } finally {
-        globalThis.String = nativeString;
-    }
+    if (result.isError(value)) return;
+    const inferred: number | string = value;
+    // @ts-expect-error mixed success value must not narrow to number.
+    const narrowed: number = value;
+    void inferred;
+    void narrowed;
 });

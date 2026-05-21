@@ -1,89 +1,61 @@
-export interface Ok<T> {
-    readonly ok: true;
-    readonly value: T;
-}
+export type Result<T = void> = T | Error;
 
-export interface Err<E = Error> {
-    readonly ok: false;
-    readonly error: E;
-}
+type PromisePart<T> = Extract<T, PromiseLike<unknown>>;
+type SyncPart<T> = Exclude<T, PromiseLike<unknown>>;
+type ResultFromFunction<T> = [PromisePart<T>] extends [never]
+    ? Result<T>
+    : [SyncPart<T>] extends [never]
+      ? Promise<Result<Awaited<T>>>
+      : Result<SyncPart<T>> | Promise<Result<Awaited<T>>>;
 
-export type Result<T, E = Error> = Ok<T> | Err<E>;
+type ResultFn = {
+    <T>(fn: () => T): ResultFromFunction<T>;
+    <T>(fn: () => PromiseLike<T>): Promise<Result<T>>;
+    <T>(promise: PromiseLike<T>): Promise<Result<T>>;
+};
 
-const NativeError = Error;
-const NativeString = String;
+const fromPromise = async <T>(promise: PromiseLike<T>): Promise<Result<Awaited<T>>> => {
+    try {
+        return toResult(await promise);
+    } catch (error) {
+        return newError(error);
+    }
+};
 
-const toError = (error: unknown): Error => {
+const isPromiseLike = <T>(value: unknown): value is PromiseLike<T> => {
+    const type = typeof value;
+    if ((type !== "object" && type !== "function") || value === null) return false;
+    return typeof (value as { readonly then?: unknown }).then === "function";
+};
+
+export const isError = (error: unknown): error is Error => {
+    return error instanceof Error;
+};
+
+const stringifyError = (error: unknown): string => {
+    try {
+        return String(error);
+    } catch {
+        return "Unknown error";
+    }
+};
+
+const newError = (error: unknown): Error => {
     if (isError(error)) return error;
-    const message = getStringMessage(error);
-    if (message !== undefined) return new NativeError(message);
-    if (isObjectLike(error)) return new NativeError(formatObjectError(error));
-    return new NativeError(typeof error === "string" ? error : safeString(error));
+    return new Error(stringifyError(error));
 };
 
-const isError = (value: unknown): value is Error => {
+const toResult = <T>(value: T): Result<T> => {
+    return isError(value) ? newError(value) : value;
+};
+
+export const tryResult = (<T>(target: (() => T) | PromiseLike<T>): Result<T> | Promise<Result<Awaited<T>>> => {
+    if (typeof target !== "function") return fromPromise(target);
+
     try {
-        return value instanceof NativeError;
-    } catch {
-        return false;
-    }
-};
-
-const getStringMessage = (value: unknown): string | undefined => {
-    if (!isObjectLike(value)) return undefined;
-    try {
-        const message = value.message;
-        return typeof message === "string" ? message : undefined;
-    } catch {
-        return undefined;
-    }
-};
-
-const isObjectLike = (value: unknown): value is Record<string, unknown> => {
-    return typeof value === "object" && value !== null;
-};
-
-const formatObjectError = (value: Record<string, unknown>): string => {
-    try {
-        const serialized = JSON.stringify(value);
-        return serialized ?? safeString(value);
-    } catch {
-        return safeString(value);
-    }
-};
-
-const safeString = (value: unknown): string => {
-    try {
-        const text = NativeString(value);
-        return typeof text === "string" ? text : "[unknown error]";
-    } catch {
-        return "[unknown error]";
-    }
-};
-
-export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
-
-export const err = <E>(error: E): Err<E> => ({ ok: false, error });
-
-export const isOk = <T, E>(result: Result<T, E>): result is Ok<T> => result.ok;
-
-export const isErr = <T, E>(result: Result<T, E>): result is Err<E> => !result.ok;
-
-export const trySyncResult = <T>(fn: () => T): Result<T> => {
-    try {
-        return ok(fn());
+        const value = target();
+        return isPromiseLike<Awaited<T>>(value) ? fromPromise(value) : toResult(value);
     } catch (error) {
-        return err(toError(error));
+        return newError(error);
     }
-};
-
-type Thenable<T> = {
-    then: (resolve: (value: T) => unknown, reject?: (reason: unknown) => unknown) => unknown;
-};
-export const tryAsyncResult = async <T>(fn: () => T | Thenable<T>): Promise<Result<T>> => {
-    try {
-        return ok(await Promise.resolve(fn()));
-    } catch (error) {
-        return err(toError(error));
-    }
-};
+}) as ResultFn;
