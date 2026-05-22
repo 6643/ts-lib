@@ -126,27 +126,60 @@ test("result awaits async function results and catches rejection", async () => {
     expect(failure.message).toBe("boom");
 });
 
-test("result awaits callable thenable results returned from callbacks", async () => {
-    const payload = Object.assign(() => 1, {
-        then<TResult1 = number, TResult2 = never>(
-            onfulfilled?: ((value: number) => TResult1 | PromiseLike<TResult1>) | null,
-            _onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-        ): PromiseLike<TResult1 | TResult2> {
-            return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
-        },
-    });
-
-    const value = await result.tryResult((): PromiseLike<number> => payload);
+test("result awaits native Promise results returned from callbacks", async () => {
+    const value = await result.tryResult((): Promise<number> => Promise.resolve(2));
 
     expect(value).toBe(2);
 });
 
-test("result treats callable inputs as thunks before thenables", () => {
+test("result treats custom thenables returned from callbacks as sync values", () => {
+    const payload = {
+        then<TResult1 = number, TResult2 = never>(
+            onfulfilled?: ((value: number) => TResult1 | Promise<TResult1>) | null,
+            _onrejected?: ((reason: unknown) => TResult2 | Promise<TResult2>) | null,
+        ): Promise<TResult1 | TResult2> {
+            return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
+        },
+    };
+
+    const value = result.tryResult(() => payload);
+
+    expect(value).toBe(payload);
+});
+
+const assertDirectCustomThenablesAreRejected = () => {
+    const payload = {
+        then<TResult1 = number, TResult2 = never>(
+            onfulfilled?: ((value: number) => TResult1 | Promise<TResult1>) | null,
+            _onrejected?: ((reason: unknown) => TResult2 | Promise<TResult2>) | null,
+        ): Promise<TResult1 | TResult2> {
+            return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
+        },
+    };
+
+    // @ts-expect-error direct custom thenables are outside the Promise-only contract.
+    void result.tryResult(payload);
+};
+
+void assertDirectCustomThenablesAreRejected;
+
+test("result infers awaited values for nested promises", () => {
+    const nested = new Promise<Promise<number>>((resolve) => resolve(Promise.resolve(1)));
+    const value = result.tryResult(nested);
+
+    const expected: Promise<result.Result<number>> = value;
+    // @ts-expect-error nested promises must be flattened by await semantics.
+    const unexpected: Promise<result.Result<Promise<number>>> = value;
+    void expected;
+    void unexpected;
+});
+
+test("result treats callable inputs as thunks", () => {
     const payload = Object.assign(() => 1, {
         then<TResult1 = number, TResult2 = never>(
-            onfulfilled?: ((value: number) => TResult1 | PromiseLike<TResult1>) | null,
-            _onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-        ): PromiseLike<TResult1 | TResult2> {
+            onfulfilled?: ((value: number) => TResult1 | Promise<TResult1>) | null,
+            _onrejected?: ((reason: unknown) => TResult2 | Promise<TResult2>) | null,
+        ): Promise<TResult1 | TResult2> {
             return Promise.resolve(onfulfilled === undefined || onfulfilled === null ? (2 as TResult1) : onfulfilled(2));
         },
     });
@@ -157,10 +190,22 @@ test("result treats callable inputs as thunks before thenables", () => {
 });
 
 test("result keeps Promise-or-value inference for mixed callbacks", async () => {
-    const value = await result.tryResult((): Promise<number> | string => {
+    const out = result.tryResult((): Promise<number> | string => {
         return Math.random() > 0.5 ? Promise.resolve(1) : "ok";
     });
 
+    if (out instanceof Promise) {
+        const asyncValue = await out;
+        if (result.isError(asyncValue)) return;
+        const inferred: number = asyncValue;
+        // @ts-expect-error async branch must not include the sync string value.
+        const narrowed: string = asyncValue;
+        void inferred;
+        void narrowed;
+        return;
+    }
+
+    const value = out;
     if (result.isError(value)) return;
     const inferred: number | string = value;
     // @ts-expect-error mixed success value must not narrow to number.

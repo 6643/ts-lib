@@ -20,6 +20,11 @@ import { isError, tryResult } from "ts-lib/result";
 - `tryResult(target)`
 - `isError(value)`
 
-失败固定为 `Error`; `tryResult` 捕获到的非 `Error` 失败值会转为 `Error`。返回, resolve, throw 或 reject 出来的 `Error` 会原样作为失败返回。
+失败固定为 `Error`; `tryResult` 捕获到的非同 realm `Error` 失败值会转为 `Error`。返回, resolve, throw 或 reject 出来的同 realm `Error` 会原样作为失败返回。
 
-可调用对象会优先按 thunk 执行; 如果需要包装 callable thenable, 放进回调里返回。
+使用边界:
+
+- 适用于可信同 realm 环境, 不防御跨 realm `Error`, `Proxy`/hostile getter, 或原生实现被改写的输入。
+- Promise 输入应为同 realm 原生 `Promise` 或 async 函数结果; 回调返回的自定义 thenable 会被当作普通同步值处理。
+
+可调用对象会优先按 thunk 执行。

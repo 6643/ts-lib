@@ -1,31 +1,29 @@
 export type Result<T = void> = T | Error;
 
-type PromisePart<T> = Extract<T, PromiseLike<unknown>>;
-type SyncPart<T> = Exclude<T, PromiseLike<unknown>>;
+type PromisePart<T> = Extract<T, Promise<unknown>>;
+type SyncPart<T> = Exclude<T, Promise<unknown>>;
 type ResultFromFunction<T> = [PromisePart<T>] extends [never]
     ? Result<T>
     : [SyncPart<T>] extends [never]
-      ? Promise<Result<Awaited<T>>>
-      : Result<SyncPart<T>> | Promise<Result<Awaited<T>>>;
+      ? Promise<Result<Awaited<PromisePart<T>>>>
+      : Result<SyncPart<T>> | Promise<Result<Awaited<PromisePart<T>>>>;
 
 type ResultFn = {
     <T>(fn: () => T): ResultFromFunction<T>;
-    <T>(fn: () => PromiseLike<T>): Promise<Result<T>>;
-    <T>(promise: PromiseLike<T>): Promise<Result<T>>;
+    <T>(fn: () => Promise<T>): Promise<Result<Awaited<T>>>;
+    <T>(promise: Promise<T>): Promise<Result<Awaited<T>>>;
 };
 
-const fromPromise = async <T>(promise: PromiseLike<T>): Promise<Result<Awaited<T>>> => {
+const fromPromise = async <T>(promise: Promise<T>): Promise<Result<Awaited<T>>> => {
     try {
-        return toResult(await promise);
+        return await promise;
     } catch (error) {
         return newError(error);
     }
 };
 
-const isPromiseLike = <T>(value: unknown): value is PromiseLike<T> => {
-    const type = typeof value;
-    if ((type !== "object" && type !== "function") || value === null) return false;
-    return typeof (value as { readonly then?: unknown }).then === "function";
+const isPromise = <T>(value: unknown): value is Promise<T> => {
+    return value instanceof Promise;
 };
 
 export const isError = (error: unknown): error is Error => {
@@ -45,16 +43,12 @@ const newError = (error: unknown): Error => {
     return new Error(stringifyError(error));
 };
 
-const toResult = <T>(value: T): Result<T> => {
-    return isError(value) ? newError(value) : value;
-};
-
-export const tryResult = (<T>(target: (() => T) | PromiseLike<T>): Result<T> | Promise<Result<Awaited<T>>> => {
+export const tryResult = (<T>(target: (() => T) | Promise<T>): Result<T> | Promise<Result<Awaited<T>>> => {
     if (typeof target !== "function") return fromPromise(target);
 
     try {
         const value = target();
-        return isPromiseLike<Awaited<T>>(value) ? fromPromise(value) : toResult(value);
+        return isPromise<Awaited<T>>(value) ? fromPromise(value) : value;
     } catch (error) {
         return newError(error);
     }
